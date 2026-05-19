@@ -54,6 +54,15 @@ class VehicleController extends Controller
     {
         $this->authorize('delete', $vehicle);
         
+        $hasFutureTrips = $vehicle->trips()
+            ->where('departure_datetime', '>', now())
+            ->where('status', '!=', 'cancelled')
+            ->exists();
+
+        if ($hasFutureTrips) {
+            return back()->with('error', 'Impossible de supprimer ce véhicule car il est associé à des trajets futurs.');
+        }
+        
         $vehicle->delete();
         
         return redirect()->route('driver.vehicles.index')

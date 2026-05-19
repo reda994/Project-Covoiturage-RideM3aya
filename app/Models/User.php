@@ -12,13 +12,16 @@ class User extends Authenticatable
 
     protected $fillable = [
         'name', 'email', 'password', 'phone', 'profile_photo',
-        'role', 'bio', 'is_active'
+        'role', 'bio', 'is_active',
+        'license_number', 'license_issue_date', 'license_category', 'license_country',
+        'license_photo_recto', 'license_photo_verso', 'license_selfie'
     ];
 
     protected $hidden = ['password', 'remember_token'];
     protected $casts = [
         'email_verified_at' => 'datetime',
-        'is_active' => 'boolean'
+        'is_active' => 'boolean',
+        'license_issue_date' => 'date',
     ];
 
     // Relations
@@ -50,6 +53,21 @@ class User extends Authenticatable
     public function notifications()
     {
         return $this->hasMany(Notification::class);
+    }
+
+    public function favorites()
+    {
+        return $this->hasMany(Favorite::class);
+    }
+
+    public function sentMessages()
+    {
+        return $this->hasMany(Message::class, 'sender_id');
+    }
+
+    public function receivedMessages()
+    {
+        return $this->hasMany(Message::class, 'receiver_id');
     }
 
     // Accesseurs

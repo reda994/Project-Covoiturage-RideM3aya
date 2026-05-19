@@ -11,29 +11,47 @@ class BookingController extends Controller
 {
     public function store(StoreBookingRequest $request, Trip $trip)
     {
-        // Vérifier les places disponibles
-        if ($trip->available_seats < $request->seats_booked) {
-            return back()->with('error', 'Plus assez de places disponibles.');
+        if ($trip->driver_id === auth()->id()) {
+            return back()->with('error', 'Vous ne pouvez pas réserver votre propre trajet.');
         }
 
-        $totalPrice = $trip->price_per_seat * $request->seats_booked;
+        $existingBooking = Booking::where('trip_id', $trip->id)
+            ->where('passenger_id', auth()->id())
+            ->whereIn('status', ['pending', 'confirmed'])
+            ->first();
 
-        $booking = Booking::create([
-            'trip_id' => $trip->id,
-            'passenger_id' => auth()->id(),
-            'seats_booked' => $request->seats_booked,
-            'total_price' => $totalPrice,
-            'status' => 'pending'
-        ]);
+        if ($existingBooking) {
+            return back()->with('error', 'Vous avez déjà une réservation active pour ce trajet.');
+        }
 
-        // Notifier le conducteur
-        $trip->driver->notifications()->create([
-            'type' => 'new_booking',
-            'message' => "Nouvelle réservation pour le trajet {$trip->departure_city} → {$trip->arrival_city} par " . auth()->user()->name
-        ]);
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($request, $trip) {
+            $lockedTrip = Trip::lockForUpdate()->find($trip->id);
 
-        return redirect()->route('my-bookings')
-            ->with('success', 'Réservation effectuée ! En attente de confirmation.');
+            if ($lockedTrip->available_seats < $request->seats_booked) {
+                return back()->with('error', 'Plus assez de places disponibles.');
+            }
+
+            $totalPrice = $lockedTrip->price_per_seat * $request->seats_booked;
+
+            $booking = Booking::create([
+                'trip_id' => $lockedTrip->id,
+                'passenger_id' => auth()->id(),
+                'seats_booked' => $request->seats_booked,
+                'total_price' => $totalPrice,
+                'status' => 'pending'
+            ]);
+
+            $lockedTrip->available_seats -= $request->seats_booked;
+            $lockedTrip->save();
+
+            $lockedTrip->driver->notifications()->create([
+                'type' => 'new_booking',
+                'message' => "Nouvelle réservation pour le trajet {$lockedTrip->departure_city} → {$lockedTrip->arrival_city} par " . auth()->user()->name
+            ]);
+
+            return redirect()->route('my-bookings')
+                ->with('success', 'Réservation effectuée ! En attente de confirmation.');
+        });
     }
 
     public function myBookings()
@@ -48,15 +66,26 @@ class BookingController extends Controller
 
     public function cancel(Booking $booking)
     {
-        $this->authorize('cancel', $booking);
+        if ($booking->passenger_id !== auth()->id()) {
+            abort(403);
+        }
         
-        $booking->update(['status' => 'cancelled']);
-        
-        // Notifier le conducteur
-        $booking->trip->driver->notifications()->create([
-            'type' => 'booking_cancelled',
-            'message' => "Réservation annulée par " . auth()->user()->name . " pour le trajet {$booking->trip->departure_city} → {$booking->trip->arrival_city}"
-        ]);
+        if ($booking->status === 'cancelled') {
+            return back()->with('error', 'Cette réservation est déjà annulée.');
+        }
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($booking) {
+            $booking->update(['status' => 'cancelled']);
+            
+            $trip = Trip::lockForUpdate()->find($booking->trip_id);
+            $trip->available_seats += $booking->seats_booked;
+            $trip->save();
+            
+            $trip->driver->notifications()->create([
+                'type' => 'booking_cancelled',
+                'message' => "Réservation annulée par " . auth()->user()->name . " pour le trajet {$trip->departure_city} → {$trip->arrival_city}"
+            ]);
+        });
         
         return redirect()->route('my-bookings')
             ->with('success', 'Réservation annulée avec succès.');

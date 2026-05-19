@@ -19,7 +19,12 @@ class ReviewController extends Controller
 
     public function store(StoreReviewRequest $request, Booking $booking)
     {
-        $review = $booking->review()->create([
+        if (!$booking->canBeReviewed()) {
+            return redirect()->route('my-bookings')
+                ->with('error', 'Vous ne pouvez pas donner d\'avis pour cette réservation.');
+        }
+
+        $review = clone $booking->review()->create([
             'booking_id' => $booking->id,
             'reviewer_id' => auth()->id(),
             'reviewed_id' => $booking->trip->driver_id,
