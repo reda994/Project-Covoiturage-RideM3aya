@@ -1,7 +1,4 @@
-// app/Http/Requests/Auth/LoginRequest.php
-
 <?php
-
 namespace App\Http\Requests\Auth;
 
 use Illuminate\Auth\Events\Lockout;
